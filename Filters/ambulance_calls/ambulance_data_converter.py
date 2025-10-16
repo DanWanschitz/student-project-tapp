@@ -1,17 +1,17 @@
-import json
 import pandas as pd
+import json
+from shapely import wkt
+from shapely.geometry import mapping, Polygon, MultiPolygon
 from pyproj import Transformer
-from shapely.geometry import shape, mapping, Polygon, MultiPolygon
 
 # Files
-csv_file = "scaled_spatio_temporal_grid_time_step=4.csv"
-geom_file = "1000x1000.json"
+csv_file = "spatiotemporal_grid_time_step=4.csv"  # your CSV
 output_file = "amsterdam_grid_wgs84.geojson"
 
 # Transformer RD -> WGS84
 transformer = Transformer.from_crs(28992, 4326, always_xy=True)
 
-# Amsterdam bounding box in RD
+# Amsterdam bounding box in RD coordinates
 ams_bbox = (121000, 487000, 139000, 504000)
 
 def in_amsterdam(geom):
@@ -20,27 +20,14 @@ def in_amsterdam(geom):
 
 # Read CSV
 df = pd.read_csv(csv_file)
-df.set_index('c28992r1000', inplace=True)  # use grid ID as index
-
-# Load geometries
-with open(geom_file, "r") as f:
-    geo_data = json.load(f)
 
 amsterdam_features = []
-for feature in geo_data['features']:
-    geom = shape(feature['geometry'])
+for _, row in df.iterrows():
+    geom = wkt.loads(row['geometry'])
     if not in_amsterdam(geom):
-        continue  # skip non-Amsterdam cells
+        continue
 
-    grid_id = feature['properties'].get('c28992r1000')
-    if grid_id not in df.index:
-        continue  # skip if CSV has no data for this grid cell
-
-    # Merge CSV properties
-    props = df.loc[grid_id].to_dict()
-    props['c28992r1000'] = grid_id
-
-    # Transform geometry
+    # Transform geometry to WGS84
     if isinstance(geom, Polygon):
         transformed = Polygon([transformer.transform(x, y) for x, y in geom.exterior.coords])
     elif isinstance(geom, MultiPolygon):
@@ -50,6 +37,17 @@ for feature in geo_data['features']:
         ])
     else:
         continue
+
+    props = {
+        "c28992r1000": row['c28992r1000'],
+        "0-4": row['0-4'],
+        "4-8": row['4-8'],
+        "8-12": row['8-12'],
+        "12-16": row['12-16'],
+        "16-20": row['16-20'],
+        "20-0": row['20-0'],
+        "Total": row['Total']
+    }
 
     amsterdam_features.append({
         "type": "Feature",
