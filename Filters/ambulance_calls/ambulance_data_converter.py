@@ -1,35 +1,52 @@
-import geopandas as gpd
-import pandas as pd
-from shapely.geometry import Point
+import json
+from pyproj import Transformer
+from shapely.geometry import shape, mapping, Polygon, MultiPolygon
 
-# ----------------------------
-# 1. Load your 1000x1000m grid
-# ----------------------------
-grid = gpd.read_file("your_grid_file.geojson")  # replace with your file
-# Make sure the grid CRS is RD New
-grid = grid.to_crs(epsg=28992)
+# File paths
+input_file = "1000x1000.json"
+output_file = "amsterdam_grid_wgs84.geojson"
 
-# ----------------------------
-# 2. Load ambulance call data
-# ----------------------------
-calls = pd.read_csv("ambulance_calls.csv")  # replace with your file
-# Make sure your CSV has 'x' and 'y' columns in RD New (EPSG:28992)
-geometry = [Point(xy) for xy in zip(calls['x'], calls['y'])]
-calls_gdf = gpd.GeoDataFrame(calls, geometry=geometry, crs="EPSG:28992")
+# RD -> WGS84 transformer
+transformer = Transformer.from_crs(28992, 4326, always_xy=True)
 
-# ----------------------------
-# 3. Spatial join: assign calls to grid cells
-# ----------------------------
-calls_in_grid = gpd.sjoin(calls_gdf, grid, how="left", predicate='within')
+# Load JSON
+with open(input_file, "r") as f:
+    data = json.load(f)
 
-# ----------------------------
-# 4. Count calls per grid cell
-# ----------------------------
-call_counts = calls_in_grid.groupby('index_right').size()
-grid['ambulance_calls'] = grid.index.map(call_counts).fillna(0).astype(int)
+# Filter Amsterdam features
+amsterdam_features = [
+    feature for feature in data['features']
+    if feature['properties'].get('city') == 'Amsterdam'
+]
 
-# ----------------------------
-# 5. Save to new file
-# ----------------------------
-grid.to_file("grid_with_calls.geojson", driver="GeoJSON")
-print("Done! GeoJSON with call counts saved.")
+# Convert geometry to WGS84
+for feature in amsterdam_features:
+    geom = shape(feature['geometry'])
+    # Transform all coordinates
+    if isinstance(geom, Polygon):
+        transformed = Polygon([transformer.transform(x, y) for x, y in geom.exterior.coords])
+    elif isinstance(geom, MultiPolygon):
+        transformed = MultiPolygon([
+            Polygon([transformer.transform(x, y) for x, y in poly.exterior.coords])
+            for poly in geom.geoms
+        ])
+    else:
+        raise ValueError(f"Unsupported geometry type: {type(geom)}")
+    feature['geometry'] = mapping(transformed)
+
+# Optionally filter out zero-density cells
+amsterdam_features = [
+    f for f in amsterdam_features
+    if f['properties'].get('omgevingsadressendichtheid', 0) > 0
+]
+
+# Save to GeoJSON
+geojson = {
+    "type": "FeatureCollection",
+    "features": amsterdam_features
+}
+
+with open(output_file, "w") as f:
+    json.dump(geojson, f)
+
+print(f"Saved {len(amsterdam_features)} Amsterdam features to {output_file}")
