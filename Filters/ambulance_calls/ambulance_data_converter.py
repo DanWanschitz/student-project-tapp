@@ -1,44 +1,44 @@
 import json
+import pandas as pd
 from pyproj import Transformer
 from shapely.geometry import shape, mapping, Polygon, MultiPolygon
 
-# Input/output
-input_file = "scaled_spatio_temporal_grid_time_step=4.json"  # your original JSON
+# Files
+csv_file = "scaled_spatio_temporal_grid_time_step=4.csv"
+geom_file = "1000x1000.json"
 output_file = "amsterdam_grid_wgs84.geojson"
 
 # Transformer RD -> WGS84
 transformer = Transformer.from_crs(28992, 4326, always_xy=True)
 
-# Approximate Amsterdam bounding box in EPSG:28992 (xmin, ymin, xmax, ymax)
+# Amsterdam bounding box in RD
 ams_bbox = (121000, 487000, 139000, 504000)
 
 def in_amsterdam(geom):
-    """Check if geometry centroid is within Amsterdam bounding box"""
     x, y = geom.centroid.coords[0]
-    return (ams_bbox[0] <= x <= ams_bbox[2]) and (ams_bbox[1] <= y <= ams_bbox[3])
+    return ams_bbox[0] <= x <= ams_bbox[2] and ams_bbox[1] <= y <= ams_bbox[3]
 
-# Load JSON
-with open(input_file, "r") as f:
-    data = json.load(f)
+# Read CSV
+df = pd.read_csv(csv_file)
+df.set_index('c28992r1000', inplace=True)  # use grid ID as index
 
-# Filter and transform
+# Load geometries
+with open(geom_file, "r") as f:
+    geo_data = json.load(f)
+
 amsterdam_features = []
-for feature in data['features']:
+for feature in geo_data['features']:
     geom = shape(feature['geometry'])
     if not in_amsterdam(geom):
-        continue  # skip features outside Amsterdam
+        continue  # skip non-Amsterdam cells
 
-    # Keep relevant properties
-    props = {
-        "c28992r1000": feature['properties'].get('c28992r1000'),
-        "0-4": feature['properties'].get('0-4'),
-        "4-8": feature['properties'].get('4-8'),
-        "8-12": feature['properties'].get('8-12'),
-        "12-16": feature['properties'].get('12-16'),
-        "16-20": feature['properties'].get('16-20'),
-        "20-0": feature['properties'].get('20-0'),
-        "Total": feature['properties'].get('Total')
-    }
+    grid_id = feature['properties'].get('c28992r1000')
+    if grid_id not in df.index:
+        continue  # skip if CSV has no data for this grid cell
+
+    # Merge CSV properties
+    props = df.loc[grid_id].to_dict()
+    props['c28992r1000'] = grid_id
 
     # Transform geometry
     if isinstance(geom, Polygon):
@@ -49,7 +49,7 @@ for feature in data['features']:
             for poly in geom.geoms
         ])
     else:
-        continue  # skip unknown geometry types
+        continue
 
     amsterdam_features.append({
         "type": "Feature",
@@ -57,13 +57,8 @@ for feature in data['features']:
         "geometry": mapping(transformed)
     })
 
-# Create FeatureCollection
-geojson = {
-    "type": "FeatureCollection",
-    "features": amsterdam_features
-}
+geojson = {"type": "FeatureCollection", "features": amsterdam_features}
 
-# Save with pretty-print
 with open(output_file, "w") as f:
     json.dump(geojson, f, indent=2)
 
