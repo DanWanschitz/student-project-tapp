@@ -1,67 +1,32 @@
 """
-Convert spatiotemporal grid CSV to point-based GeoJSON
-Creates individual point features for each call based on grid cell centers and hourly counts
+Convert spatiotemporal grid CSV to GeoJSON grid polygons
+Preserves the actual grid structure without jittering
+Each polygon represents a grid cell with aggregated call data by hour
 
-This simulates individual ambulance calls from aggregated grid data
+This maintains data accuracy by keeping the original grid structure
 """
 
 import pandas as pd
 import json
 from shapely import wkt
-from shapely.geometry import Point, mapping
+from shapely.geometry import mapping
 from pyproj import Transformer
-import random
-from datetime import datetime, timedelta
 
 # === CONFIGURATION ===
 csv_file = "AMS_spatiotemporal_grid_time_step=1.csv"  # hourly data
-output_file = "amsterdam_ambulance_points_from_grid.geojson"
-
-# Base date for the data (2017-2019 autumn seasons)
-# We'll simulate dates across this range
-START_DATE = datetime(2017, 9, 1)  # Sept 1, 2017
-END_DATE = datetime(2019, 11, 30)  # Nov 30, 2019
+output_file = "amsterdam_ambulance_grid.geojson"
 
 # Transformer: RD → WGS84
 transformer = Transformer.from_crs(28992, 4326, always_xy=True)
 
-# Amsterdam bounding box in RD
-AMS_BBOX = (118000, 480000, 130000, 495000)
-
-def is_in_amsterdam(x, y):
-    """Check if RD coordinates are in Amsterdam"""
-    return AMS_BBOX[0] <= x <= AMS_BBOX[2] and AMS_BBOX[1] <= y <= AMS_BBOX[3]
-
-def get_polygon_center(geom):
-    """Get center point of polygon in RD coordinates"""
-    centroid = geom.centroid
-    return centroid.x, centroid.y
-
-def jitter_point(x, y, cell_size=1000, jitter_fraction=0.4):
-    """
-    Add random jitter to avoid all points being at exact cell center
-    jitter_fraction: how much of cell size to use for jitter (0.4 = ±40% of cell)
-    """
-    jitter_amount = cell_size * jitter_fraction
-    x_jittered = x + random.uniform(-jitter_amount, jitter_amount)
-    y_jittered = y + random.uniform(-jitter_amount, jitter_amount)
-    return x_jittered, y_jittered
-
-def generate_random_dates(num_calls, start_date, end_date):
-    """
-    Generate random dates within range
-    For simplicity, spread evenly across the date range
-    """
-    date_range = (end_date - start_date).days
-    dates = []
-    for _ in range(num_calls):
-        random_days = random.randint(0, date_range)
-        date = start_date + timedelta(days=random_days)
-        dates.append(date)
-    return sorted(dates)
+def transform_polygon(geom):
+    """Transform polygon from RD to WGS84"""
+    coords = geom.exterior.coords
+    transformed_coords = [transformer.transform(x, y) for x, y in coords]
+    return transformed_coords
 
 print("=" * 70)
-print("Converting Grid Data to Point-Based GeoJSON")
+print("Converting Grid Data to GeoJSON Polygons")
 print("=" * 70)
 print()
 
@@ -82,11 +47,9 @@ df["aantal_inwoners"] = pd.to_numeric(df["aantal_inwoners"], errors="coerce").fi
 print(f"   ✅ Loaded {len(df)} grid cells")
 print()
 
-# Convert to points
-print("📍 Converting grid cells to individual call points...")
+# Convert to GeoJSON features
+print("📍 Converting grid cells to GeoJSON polygons...")
 features = []
-total_calls = 0
-cells_processed = 0
 
 for idx, row in df.iterrows():
     if idx % 100 == 0:
@@ -98,106 +61,88 @@ for idx, row in df.iterrows():
     except:
         continue
     
-    # Get center in RD
-    center_x, center_y = get_polygon_center(geom)
+    # Transform to WGS84
+    transformed_coords = transform_polygon(geom)
     
-    # Check if in Amsterdam
-    if not is_in_amsterdam(center_x, center_y):
-        continue
+    # Calculate total calls and by period
+    calls_by_hour = {}
+    total_calls = 0
     
-    cells_processed += 1
+    night_calls = 0      # 23, 0, 1, 2, 3, 4
+    morning_calls = 0    # 5-10
+    afternoon_calls = 0  # 11-16
+    evening_calls = 0    # 17-22
     
-    # Process each hour
     for hour_col in hour_cols:
         if hour_col not in row:
             continue
         
-        call_count = row[hour_col]
+        calls = row[hour_col]
+        if pd.isna(calls):
+            calls = 0
         
-        # Skip if no calls
-        if call_count == 0 or pd.isna(call_count):
-            continue
-        
-        # Determine hour from column name
         hour = int(hour_col.split('-')[0])
+        calls_by_hour[hour] = float(calls)
+        total_calls += calls
         
-        # Determine time period
+        # Aggregate by period
         if hour in [23, 0, 1, 2, 3, 4]:
-            period = 'night'
-        elif 5 <= hour < 11:
-            period = 'morning'
-        elif 11 <= hour < 17:
-            period = 'afternoon'
+            night_calls += calls
+        elif 5 <= hour <= 10:
+            morning_calls += calls
+        elif 11 <= hour <= 16:
+            afternoon_calls += calls
         else:
-            period = 'evening'
-        
-        # Since call_count is a decimal (rate/density), we need to interpret it
-        # Option 1: Round to nearest integer (treat as approximate count)
-        # Option 2: Use as-is and create fractional representation
-        
-        # We'll round and create that many points
-        num_points = max(1, round(call_count * 100))  # Scale up small decimals
-        
-        # Generate random dates for these calls
-        call_dates = generate_random_dates(num_points, START_DATE, END_DATE)
-        
-        for call_date in call_dates:
-            # Add jitter to location (spread within cell)
-            jittered_x, jittered_y = jitter_point(center_x, center_y)
-            
-            # Convert to WGS84
-            lon, lat = transformer.transform(jittered_x, jittered_y)
-            
-            # Set time to match the hour
-            call_datetime = call_date.replace(hour=hour, minute=random.randint(0, 59))
-            
-            # Create feature
-            features.append({
-                'type': 'Feature',
-                'geometry': {
-                    'type': 'Point',
-                    'coordinates': [lon, lat]
-                },
-                'properties': {
-                    'grid_id': int(row['c28992r1000']),
-                    'population': int(row['aantal_inwoners']),
-                    'timestamp': call_datetime.isoformat(),
-                    'date': call_datetime.strftime('%Y-%m-%d'),
-                    'time': call_datetime.strftime('%H:%M'),
-                    'hour': hour,
-                    'period': period,
-                    'original_value': float(call_count)
-                }
-            })
-            
-            total_calls += 1
+            evening_calls += calls
+    
+    # Skip empty cells
+    if total_calls == 0:
+        continue
+    
+    # Create feature
+    feature = {
+        'type': 'Feature',
+        'geometry': {
+            'type': 'Polygon',
+            'coordinates': [transformed_coords]
+        },
+        'properties': {
+            'grid_id': int(row['c28992r1000']),
+            'population': int(row['aantal_inwoners']),
+            'total_calls': float(total_calls),
+            'night_calls': float(night_calls),
+            'morning_calls': float(morning_calls),
+            'afternoon_calls': float(afternoon_calls),
+            'evening_calls': float(evening_calls),
+            'calls_by_hour': calls_by_hour
+        }
+    }
+    
+    features.append(feature)
 
-print(f"\n   ✅ Processed {cells_processed} Amsterdam grid cells")
-print(f"   ✅ Generated {total_calls} individual call points")
+print(f"\n   ✅ Processed {len(features)} grid cells with ambulance calls")
 print()
+
+# Calculate statistics
+total_calls_all = sum(f['properties']['total_calls'] for f in features)
+period_totals = {
+    'night': sum(f['properties']['night_calls'] for f in features),
+    'morning': sum(f['properties']['morning_calls'] for f in features),
+    'afternoon': sum(f['properties']['afternoon_calls'] for f in features),
+    'evening': sum(f['properties']['evening_calls'] for f in features)
+}
 
 # Create GeoJSON
 print("💾 Creating GeoJSON...")
-
-# Calculate statistics
-periods = {'night': 0, 'morning': 0, 'afternoon': 0, 'evening': 0}
-hours = {h: 0 for h in range(24)}
-
-for f in features:
-    periods[f['properties']['period']] += 1
-    hours[f['properties']['hour']] += 1
-
 geojson = {
     'type': 'FeatureCollection',
     'features': features,
     'metadata': {
         'source': csv_file,
-        'date_range': f"{START_DATE.strftime('%Y-%m-%d')} to {END_DATE.strftime('%Y-%m-%d')}",
-        'total_calls': len(features),
-        'calls_by_period': periods,
-        'calls_by_hour': hours,
-        'grid_cells_used': cells_processed,
-        'note': 'Points are simulated from grid aggregates with spatial jitter'
+        'total_grid_cells': len(features),
+        'total_calls': float(total_calls_all),
+        'calls_by_period': period_totals,
+        'note': 'Grid polygons preserve original spatial accuracy'
     }
 }
 
@@ -207,19 +152,12 @@ with open(output_file, 'w') as f:
 print(f"✅ Saved to {output_file}")
 print()
 print("📊 Summary Statistics:")
-print(f"   Total simulated calls: {len(features):,}")
-print(f"   Source grid cells: {cells_processed:,}")
-print(f"   Date range: {START_DATE.strftime('%Y-%m-%d')} to {END_DATE.strftime('%Y-%m-%d')}")
+print(f"   Total grid cells: {len(features):,}")
+print(f"   Total calls: {total_calls_all:,.2f}")
 print()
 print("   By Time Period:")
-for period, count in periods.items():
-    pct = (count / len(features) * 100) if features else 0
-    print(f"      {period.capitalize():12s}: {count:6,} ({pct:5.1f}%)")
+for period, count in period_totals.items():
+    pct = (count / total_calls_all * 100) if total_calls_all else 0
+    print(f"      {period.capitalize():12s}: {count:8,.2f} ({pct:5.1f}%)")
 print()
-print("   Peak Hours:")
-sorted_hours = sorted(hours.items(), key=lambda x: x[1], reverse=True)[:5]
-for hour, count in sorted_hours:
-    print(f"      Hour {hour:2d}-{(hour+1)%24:2d}: {count:6,} calls")
-print()
-print(f"✅ Ready to use with amsterdam_ambulance_heatmap.html")
-print(f"   Update the fetch URL to: {output_file}")
+print("✅ Ready for grid visualization")
