@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Amsterdam Fietsnetten</title>
+  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet" />
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #map { position: absolute; inset: 0; }
+    .mapboxgl-popup-content { font: 14px/1.4 system-ui, sans-serif; }
+    .prop-table { border-collapse: collapse; }
+    .prop-table td { border-top: 1px solid #ddd; padding: 2px 6px; vertical-align: top; }
+    .prop-table td:first-child { white-space: nowrap; font-weight: 600; }
+  </style>
+</head>
+<body>
+<div id="map"></div>
+
+<script>
+  // 🔑 Use YOUR OWN token here
+  mapboxgl.accessToken = 'pk.eyJ1IjoiZGFud2Fuc2NoaXR6IiwiYSI6ImNtaDBsYWwxZjE0Y2wybHBvNm5iOGlwZmQifQ.oztvgJRZSC0Oi3NqrZ1Qlg';
+
+  const GEOJSON_URL =
+    'https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=FIETSNETTEN&THEMA=fietsnetten';
+
+  const map = new mapboxgl.Map({
+    container: 'map',
+    style: 'mapbox://styles/mapbox/streets-v12',
+    center: [4.9041, 52.3676],
+    zoom: 12
+  });
+
+  map.on('load', () => {
+    map.addSource('fietsnetten', {
+      type: 'geojson',
+      data: GEOJSON_URL
+    });
+
+    // Lines (covers LineString & MultiLineString)
+    map.addLayer({
+      id: 'fietsnetten-lines',
+      type: 'line',
+      source: 'fietsnetten',
+      filter: ['==', ['geometry-type'], 'LineString'],
+      paint: {
+        'line-width': 3,
+        'line-color': '#1f78b4',
+        'line-opacity': 0.9
+      }
+    });
+
+    // Points (if present)
+    map.addLayer({
+      id: 'fietsnetten-points',
+      type: 'circle',
+      source: 'fietsnetten',
+      filter: ['==', ['geometry-type'], 'Point'],
+      paint: {
+        'circle-radius': 4,
+        'circle-color': '#e63946',
+        'circle-stroke-width': 1,
+        'circle-stroke-color': '#fff'
+      }
+    });
+
+    // Cursor feedback
+    ['fietsnetten-lines', 'fietsnetten-points'].forEach((layerId) => {
+      map.on('mouseenter', layerId, () => map.getCanvas().style.cursor = 'pointer');
+      map.on('mouseleave', layerId, () => map.getCanvas().style.cursor = '');
+    });
+
+    // Popups show ALL properties (so you don’t need to know exact field names)
+    const showPropsPopup = (e) => {
+      const f = e.features && e.features[0];
+      if (!f) return;
+      const props = f.properties || {};
+      const rows = Object.keys(props).map(k =>
+        `<tr><td>${k}</td><td>${String(props[k])}</td></tr>`).join('');
+      new mapboxgl.Popup()
+        .setLngLat(e.lngLat)
+        .setHTML(`<strong>Fietsnetten</strong><br><table class="prop-table">${rows}</table>`)
+        .addTo(map);
+    };
+
+    map.on('click', 'fietsnetten-lines', showPropsPopup);
+    map.on('click', 'fietsnetten-points', showPropsPopup);
+
+    // Optional: fit to data once it loads completely
+    // (We fetch once just to compute a bbox; no extra libs needed)
+    fetch(GEOJSON_URL).then(r => r.json()).then(geo => {
+      const bbox = getBBox(geo);
+      if (bbox) map.fitBounds(bbox, { padding: 40, duration: 800 });
+    }).catch(() => { /* ignore */ });
+  });
+
+  // Compute bbox of a GeoJSON Feature/FeatureCollection
+  function getBBox(geo) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const visit = (coords) => {
+      if (typeof coords[0] === 'number') {
+        const [x, y] = coords;
+        if (x < minX) minX = x; if (y < minY) minY = y;
+        if (x > maxX) maxX = x; if (y > maxY) maxY = y;
+      } else {
+        coords.forEach(visit);
+      }
+    };
+    const handle = (g) => {
+      if (!g) return;
+      if (g.type === 'FeatureCollection') g.features.forEach(f => handle(f));
+      else if (g.type === 'Feature') handle(g.geometry);
+      else if (g.coordinates) visit(g.coordinates);
+    };
+    handle(geo);
+    if (minX === Infinity) return null;
+    return [[minX, minY], [maxX, maxY]];
+  }
+
+  // Log Mapbox runtime errors (prevents “blank page” surprises)
+  map.on('error', (ev) => console.error('Mapbox error:', ev && ev.error));
+</script>
+</body>
+</html>
+
