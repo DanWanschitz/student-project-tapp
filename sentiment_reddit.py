@@ -20,8 +20,6 @@ subreddits = [
     "bicycling",
     "bikecommuting",
     "Netherlands",
-    "europe",
-    "travel",
     "urbanplanning",
     "CityCycling",  # Added relevant cycling subreddit
     "biketouring",  # May have Amsterdam discussions
@@ -59,10 +57,14 @@ def contains_amsterdam_cycling_content(text):
     has_amsterdam = any(term in text_lower for term in amsterdam_terms)
     
     # Must mention cycling/biking
-    cycling_terms = ["cycling", "bike", "bicycle", "biking", "cycle"]
+    cycling_terms = ["cycling", "bike", "bicycle", "biking", "cycle", "biked", "cycle lane", "infrastructure", "intersection", "traffic light", "separated", "protected", "path"]
     has_cycling = any(term in text_lower for term in cycling_terms)
+
+    # Must mention safety attitudes or conditions
+    safety_terms = ["safe", "accident", "unsafe", "dangerous", "nervous", "stressful", "enjoyable", "relaxed", "crash", "safety", "stress", "fear", "scary", "collision", "close call", "helmet", "visibility", "confident", "comfortable", "visible", "near miss"]
+    has_safety = any(term in text_lower for term in safety_terms)
     
-    return has_amsterdam and has_cycling
+    return has_amsterdam and has_cycling and has_safety
 
 for sub in subreddits:
     print(f"Processing {sub}...")
