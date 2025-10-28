@@ -20,14 +20,11 @@ subreddits = [
     "europe",
     "Netherlands"
 ]
-queries = [
+query = [
     "cycling safety Amsterdam",
-    "bike safety Amsterdam",
-    "dangerous cycling Amsterdam",
-    "cycling accidents Amsterdam",
-    "bike lanes Amsterdam"
+
 ]
-query = " OR ".join(queries)
+
 
 
 # --- Collect posts ---
@@ -45,3 +42,5 @@ for sub in subreddits:
 
 df = pd.DataFrame(posts)
 print(f"Collected {len(df)} posts.")
+
+
