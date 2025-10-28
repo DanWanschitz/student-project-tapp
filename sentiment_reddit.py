@@ -137,6 +137,20 @@ for sub in subreddits:
     print(f"{sub}: search_found={search_found}, fallback_found={fallback_found}")
     time.sleep(1)  # Be respectful to Reddit's API
 
+
+    #key word relevance scoring function
+    # --- Add this after defining your keywords and before the final dataframe ---
+all_keywords = (
+    ["amsterdam", "ams", "dam"] +
+    ["cycling", "bike", "bicycle", "biking", "cycle", "biked", "cycle lane", "infrastructure", "intersection", "traffic light", "separated", "protected", "path"] +
+    ["safe", "accident", "unsafe", "dangerous", "nervous", "stressful", "enjoyable", "relaxed", "crash", "safety", "stress", "fear", "scary", "collision", "close call", "helmet", "visibility", "confident", "comfortable", "visible", "near miss"]
+)
+
+def keyword_match_count(text):
+    text_lower = (text or "").lower()
+    return sum(text_lower.count(k) for k in all_keywords)
+
+
 # --- Enhanced data processing ---
 df = pd.DataFrame(posts)
 print(f"Collected {len(df)} posts total.")
@@ -149,7 +163,7 @@ if len(df) > 0:
     # df = df.drop_duplicates(subset=['title'], keep='first')
     
     # Sort by score and date
-    df = df.sort_values(['score', 'created_date'], ascending=[False, False])
+    #df = df.sort_values(['score', 'created_date'], ascending=[False, False])
     
     print(f"Posts by subreddit:")
     print(df['subreddit'].value_counts())
@@ -157,11 +171,18 @@ if len(df) > 0:
     print(f"\nPosts by method:")
     print(df['method'].value_counts())
     
-    # Save intermediate results
-    df.to_csv('amsterdam_cycling_posts.csv', index=False)
-    print("Data saved to amsterdam_cycling_posts.csv")
+        # Compute keyword match count for relevance
+    df['relevance'] = df['text'].apply(keyword_match_count)
+    
+    # Keep only top 500 most relevant posts
+    df_top500 = df.sort_values('relevance', ascending=False).head(500)
+    
+    # Save only the top 500 relevant posts
+    df_top500.to_csv('amsterdam_cycling_posts_top500.csv', index=False)
+    print(f"Saved {len(df_top500)} most relevant posts to amsterdam_cycling_posts_top500.csv")
+    
+    # Optional: summary info
+    print("Top subreddits in top 500 posts:")
+    print(df_top500['subreddit'].value_counts())
 else:
-    print("No posts found. Consider:")
-    print("1. Checking your Reddit API credentials")
-    print("2. Expanding time_filter to 'all'")
-    print("3. Trying broader keywords")
+    print("No posts found. Consider adjusting your keywords or queries.")
