@@ -108,14 +108,12 @@ seen_ids = set()
 for sub in subreddits:
     print(f"Processing {sub}...")
     subreddit = reddit.subreddit(sub)
+
     
-    search_found = 0
-    fallback_found = 0
-    
-    # Try multiple individual queries instead of OR combination
+    # Try multiple individual queries instead of OR combination #only results from last year
     for individual_query in queries:
         try:
-            for submission in subreddit.search(individual_query, limit=50, time_filter='year'):
+            for submission in subreddit.search(individual_query, limit=100, time_filter='year'):
                 if submission.id in seen_ids:
                     continue
                     
@@ -134,7 +132,7 @@ for sub in subreddits:
                         "method": "search"
                     })
                     seen_ids.add(submission.id)
-                    search_found += 1
+                    
                     
         except Exception as e:
             print(f"Search error for {sub} with query '{individual_query}': {e}")
@@ -143,7 +141,7 @@ for sub in subreddits:
         time.sleep(0.5)
     
     # Enhanced fallback approach
-    if search_found < 5:  # Still do fallback even if some search results found
+
         try:
             # Try both 'new' and 'hot' sorting
             for sort_method in ['new', 'hot']:
@@ -168,7 +166,7 @@ for sub in subreddits:
                             "method": "fallback"
                         })
                         seen_ids.add(submission.id)
-                        fallback_found += 1
+                        
                         
         except Exception as e:
             print(f"Fallback scan error for {sub}: {e}")
@@ -194,13 +192,19 @@ if len(df) > 0:
     # Sort by score and date
     #df = df.sort_values(['score', 'created_date'], ascending=[False, False])
     
-    print(f"Posts by subreddit:")
-    print(df['subreddit'].value_counts())
+    # Compute relevance: keyword matches + subreddit weight + query weight
+    df['keyword_relevance'] = df['text'].apply(keyword_match_count)
+    df['subreddit_weight'] = df['subreddit'].map(subreddit_weights).fillna(0)
+    df['query_weight'] = df['query_used'].map(query_weights).fillna(0)
+    df['relevance'] = df['keyword_relevance'] + df['subreddit_weight'] + df['query_weight']
+
+    #print(f"Posts by subreddit:")
+    #print(df['subreddit'].value_counts())
     
-    print(f"\nPosts by method:")
-    print(df['method'].value_counts())
+    #print(f"\nPosts by method:")
+    #print(df['method'].value_counts())
     
-        # Compute keyword match count for relevance
+    # Compute keyword match count for relevance
     df['relevance'] = df['text'].apply(keyword_match_count)
     
     # Keep only top 500 most relevant posts
