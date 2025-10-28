@@ -44,12 +44,47 @@ keywords = [
     "comfortable", "stress", "helmet", "visibility", "intersection", "roundabout"
 ]
 
-# --- Improved data collection ---
-posts = []
-seen_ids = set()
+#Subreddit weights 
+subreddit_weights = {
+    "Amsterdam": 3,
+    "cycling": 3,
+    "bicycling": 2,
+    "bikecommuting": 2,
+    "urbanplanning": 1,
+    "CityCycling": 2,
+    "biketouring": 1,
+    "thenetherlands": 1
+}
+
+#query weights
+query_weights = {
+    "Amsterdam cycling": 3,
+    "Amsterdam bike": 2,
+    "Amsterdam safety": 3,
+    "bike lane Amsterdam": 2,
+    "cycling Amsterdam": 2
+}
+
+# --- Combined keywords for relevance scoring ---
+all_keywords = keywords
+
+    #key word relevance scoring function
+    # --- Add this after defining your keywords and before the final dataframe ---
+all_keywords = (
+    ["amsterdam", "ams", "dam"] +
+    ["cycling", "bike", "bicycle", "biking", "cycle", "biked", "cycle lane", "infrastructure", "intersection", "traffic light", "separated", "protected", "path"] +
+    ["safe", "accident", "unsafe", "dangerous", "nervous", "stressful", "enjoyable", "relaxed", "crash", "safety", "stress", "fear", "scary", "collision", "close call", "helmet", "visibility", "confident", "comfortable", "visible", "near miss"]
+)
+
+def keyword_match_count(text):
+    text_lower = (text or "").lower()
+    return sum(text_lower.count(k) for k in all_keywords)
+
+# --- Content filter function ---
 
 def contains_amsterdam_cycling_content(text):
     """More sophisticated content filtering"""
+    # Input is guaranteed to be a string from: (submission.title or "") + " " + (submission.selftext or "")
     text_lower = text.lower()
     
     # Must mention Amsterdam (or common abbreviations)
@@ -65,6 +100,10 @@ def contains_amsterdam_cycling_content(text):
     has_safety = any(term in text_lower for term in safety_terms)
     
     return has_amsterdam and has_cycling and has_safety
+
+# --- Improved data collection ---
+posts = []
+seen_ids = set()
 
 for sub in subreddits:
     print(f"Processing {sub}...")
@@ -138,17 +177,7 @@ for sub in subreddits:
     time.sleep(1)  # Be respectful to Reddit's API
 
 
-    #key word relevance scoring function
-    # --- Add this after defining your keywords and before the final dataframe ---
-all_keywords = (
-    ["amsterdam", "ams", "dam"] +
-    ["cycling", "bike", "bicycle", "biking", "cycle", "biked", "cycle lane", "infrastructure", "intersection", "traffic light", "separated", "protected", "path"] +
-    ["safe", "accident", "unsafe", "dangerous", "nervous", "stressful", "enjoyable", "relaxed", "crash", "safety", "stress", "fear", "scary", "collision", "close call", "helmet", "visibility", "confident", "comfortable", "visible", "near miss"]
-)
 
-def keyword_match_count(text):
-    text_lower = (text or "").lower()
-    return sum(text_lower.count(k) for k in all_keywords)
 
 
 # --- Enhanced data processing ---
