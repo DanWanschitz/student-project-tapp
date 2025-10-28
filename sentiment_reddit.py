@@ -171,7 +171,7 @@ for sub in subreddits:
         except Exception as e:
             print(f"Fallback scan error for {sub}: {e}")
     
-    print(f"{sub}: search_found={search_found}, fallback_found={fallback_found}")
+    #print(f"{sub}: search_found={search_found}, fallback_found={fallback_found}")
     time.sleep(1)  # Be respectful to Reddit's API
 
 
